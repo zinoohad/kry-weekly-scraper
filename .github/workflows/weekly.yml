@@ -1,0 +1,38 @@
+name: Weekly KRY Scraper
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    # Runs every Sunday at 05:20 UTC.
+    # In Israel: usually 07:20 winter / 08:20 summer.
+    - cron: "20 5 * * 0"
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Run scraper
+        env:
+          KRY_BASE_URL: "https://k-ry.org.il"
+          KRY_USERNAME: ${{ secrets.KRY_USERNAME }}
+          KRY_PASSWORD: ${{ secrets.KRY_PASSWORD }}
+          DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          HEADLESS: "true"
+        run: python scraper.py

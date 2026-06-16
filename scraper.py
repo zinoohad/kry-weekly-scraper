@@ -139,12 +139,10 @@ def drive_upload_state(service, state: Dict[str, Any]):
 
 
 def login(page):
-    log("Opening website")
-    page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
+    login_url = os.getenv("KRY_LOGIN_URL", urljoin(BASE_URL, "/login.asp"))
 
-    if page.get_by_text(SECTION_TEXT, exact=False).count() > 0:
-        log("Already logged in")
-        return
+    log(f"Opening login page: {login_url}")
+    page.goto(login_url, wait_until="domcontentloaded", timeout=60000)
 
     log("Logging in")
 
@@ -176,6 +174,11 @@ def login(page):
             page.keyboard.press("Enter")
 
     page.wait_for_load_state("networkidle", timeout=60000)
+
+    # Basic login validation
+    if page.locator("input[type='password']").count() > 0:
+        raise RuntimeError("Login probably failed: password field is still visible after submit.")
+
     log("Login finished")
 
 

@@ -38,10 +38,11 @@ jobs:
           grep -n "first()" scraper.py || true
           echo "Line 180-195:"
           nl -ba scraper.py | sed -n '180,195p'
-          
+
       - name: Run scraper
         env:
           KRY_BASE_URL: "https://k-ry.org.il"
+          KRY_LOGIN_URL: "https://k-ry.org.il/login.asp"
           KRY_USERNAME: ${{ secrets.KRY_USERNAME }}
           KRY_PASSWORD: ${{ secrets.KRY_PASSWORD }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}

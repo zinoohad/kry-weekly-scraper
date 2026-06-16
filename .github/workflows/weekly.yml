@@ -26,7 +26,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
-
+          
+      - name: Debug checked out code
+        run: |
+          echo "Current branch/ref:"
+          git branch --show-current || true
+          git rev-parse HEAD
+          echo "Last commit:"
+          git log -1 --oneline
+          echo "Searching for bad Playwright usage:"
+          grep -n "first()" scraper.py || true
+          echo "Line 180-195:"
+          nl -ba scraper.py | sed -n '180,195p'
+          
       - name: Run scraper
         env:
           KRY_BASE_URL: "https://k-ry.org.il"

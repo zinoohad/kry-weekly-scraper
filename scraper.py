@@ -152,9 +152,9 @@ def login(page):
         page.locator(USERNAME_SELECTOR).fill(USERNAME)
     else:
         if page.locator("input[type='email']").count() > 0:
-            page.locator("input[type='email']").first().fill(USERNAME)
+            page.locator("input[type='email']").first.fill(USERNAME)
         elif page.locator("input[type='text']").count() > 0:
-            page.locator("input[type='text']").first().fill(USERNAME)
+            page.locator("input[type='text']").first.fill(USERNAME)
         else:
             raise RuntimeError("Username field not found. Set KRY_USERNAME_SELECTOR.")
 
@@ -163,15 +163,15 @@ def login(page):
     else:
         if page.locator("input[type='password']").count() == 0:
             raise RuntimeError("Password field not found. Set KRY_PASSWORD_SELECTOR.")
-        page.locator("input[type='password']").first().fill(PASSWORD)
+        page.locator("input[type='password']").first.fill(PASSWORD)
 
     if LOGIN_BUTTON_SELECTOR:
         page.locator(LOGIN_BUTTON_SELECTOR).click()
     else:
         if page.locator("input[type='submit']").count() > 0:
-            page.locator("input[type='submit']").first().click()
+            page.locator("input[type='submit']").first.click()
         elif page.locator("button[type='submit']").count() > 0:
-            page.locator("button[type='submit']").first().click()
+            page.locator("button[type='submit']").first.click()
         else:
             page.keyboard.press("Enter")
 
@@ -186,7 +186,7 @@ def navigate_to_discussions(page):
     if locator.count() == 0:
         raise RuntimeError(f"Could not find section: {SECTION_TEXT}")
 
-    locator.first().click()
+    locator.first.click()
     page.wait_for_load_state("networkidle", timeout=60000)
 
 
@@ -238,9 +238,9 @@ def download_print_version(context, item, output_dir: Path) -> Optional[Path]:
         page.wait_for_load_state("networkidle", timeout=60000)
 
         if PRINT_LINK_SELECTOR:
-            print_button = page.locator(PRINT_LINK_SELECTOR).first()
+            print_button = page.locator(PRINT_LINK_SELECTOR).first
         else:
-            print_button = page.get_by_text(PRINT_TEXT, exact=False).first()
+            print_button = page.get_by_text(PRINT_TEXT, exact=False).first
 
         if print_button.count() == 0:
             log(f"No print version found for {item['title']}")

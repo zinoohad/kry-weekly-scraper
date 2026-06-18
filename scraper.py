@@ -38,8 +38,8 @@ DECISIONS_PATH = os.getenv("KRY_DECISIONS_PATH", "/decisions2")
 # "כניסה לחברים" is ONLY the title inside the login form.
 # The real opener is "התחברות".
 OPEN_LOGIN_SELECTOR = os.getenv("KRY_OPEN_LOGIN_SELECTOR", 'button:has-text("התחברות")')
-USERNAME_SELECTOR = os.getenv("KRY_USERNAME_SELECTOR", 'input[name="email"]')
-PASSWORD_SELECTOR = os.getenv("KRY_PASSWORD_SELECTOR", 'input[type="password"]')
+USERNAME_SELECTOR = os.getenv("KRY_USERNAME_SELECTOR", "#input_comp-md2ww5ye")
+PASSWORD_SELECTOR = os.getenv("KRY_PASSWORD_SELECTOR", "#input_comp-md2ww5yo2")
 LOGIN_BUTTON_SELECTOR = os.getenv("KRY_LOGIN_BUTTON_SELECTOR", 'button[aria-label="כניסה"]')
 
 ITEM_LINK_SELECTOR = os.getenv("KRY_ITEM_LINK_SELECTOR", 'a[href^="/protocols/"]')
@@ -433,8 +433,13 @@ def login(page) -> None:
     log(f"Checking protected page access: {decisions_url}")
 
     page.goto(decisions_url, wait_until="domcontentloaded", timeout=60000)
-    page.wait_for_load_state("networkidle", timeout=60000)
-    page.wait_for_timeout(4000)
+
+    try:
+        page.wait_for_selector(ITEM_LINK_SELECTOR, timeout=30000)
+        log(f"Protected page loaded and protocol selector appeared: {ITEM_LINK_SELECTOR}")
+    except Exception as e:
+        log(f"Protocol selector did not appear within timeout: {e}")
+        page.wait_for_timeout(5000)
 
     log(f"URL after protected page check: {page.url}")
     log(f"Title after protected page check: {page.title()}")
@@ -455,8 +460,13 @@ def navigate_to_discussions(page) -> None:
 
     log(f"Navigating directly to discussions page: {decisions_url}")
     page.goto(decisions_url, wait_until="domcontentloaded", timeout=60000)
-    page.wait_for_load_state("networkidle", timeout=60000)
-    page.wait_for_timeout(3000)
+
+    try:
+        page.wait_for_selector(ITEM_LINK_SELECTOR, timeout=30000)
+        log(f"Protocol selector appeared: {ITEM_LINK_SELECTOR}")
+    except Exception as e:
+        log(f"Protocol selector did not appear within timeout: {e}")
+        page.wait_for_timeout(5000)
 
     log(f"Current URL after navigating to discussions: {page.url}")
     log(f"Page title after navigating to discussions: {page.title()}")

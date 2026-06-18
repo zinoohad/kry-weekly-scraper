@@ -16,7 +16,7 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 
-BASE_URL = os.getenv("KRY_BASE_URL", "https://k-ry.org.il")
+BASE_URL = os.getenv("KRY_BASE_URL", "https://www.k-ry.org.il")
 USERNAME = os.environ["KRY_USERNAME"]
 PASSWORD = os.environ["KRY_PASSWORD"]
 
@@ -142,7 +142,7 @@ def drive_upload_state(service, state: Dict[str, Any]):
 
 
 def login(page):
-    login_url = os.getenv("KRY_LOGIN_URL", urljoin(BASE_URL, "/login.asp"))
+    login_url = os.getenv("KRY_LOGIN_URL", BASE_URL)
 
     log(f"Opening login page: {login_url}")
     page.goto(login_url, wait_until="domcontentloaded", timeout=60000)

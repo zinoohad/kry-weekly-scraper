@@ -42,7 +42,7 @@ jobs:
       - name: Run scraper
         env:
           KRY_BASE_URL: "https://k-ry.org.il"
-          KRY_LOGIN_URL: "https://k-ry.org.il/login.asp"
+          KRY_LOGIN_URL: "https://k-ry.org.il/"
           KRY_USERNAME: ${{ secrets.KRY_USERNAME }}
           KRY_PASSWORD: ${{ secrets.KRY_PASSWORD }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}

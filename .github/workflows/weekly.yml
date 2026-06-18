@@ -47,9 +47,14 @@ jobs:
           KRY_PASSWORD: ${{ secrets.KRY_PASSWORD }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
           GOOGLE_OAUTH_TOKEN_JSON: ${{ secrets.GOOGLE_OAUTH_TOKEN_JSON }}
-          KRY_OPEN_LOGIN_SELECTOR: 'a:has-text("התחברות")'
+
+          KRY_OPEN_LOGIN_SELECTOR: 'button:has-text("התחברות")'
+          KRY_USERNAME_SELECTOR: 'input[name="email"]'
+          KRY_PASSWORD_SELECTOR: 'input[type="password"]'
+          KRY_LOGIN_BUTTON_SELECTOR: 'button[aria-label="כניסה"]'
           KRY_ITEM_LINK_SELECTOR: 'a[href^="/protocols/"]'
           KRY_PRINT_LINK_SELECTOR: 'a:has-text("גרסת הדפסה")'
+
           HEADLESS: "true"
         run: python scraper.py
 

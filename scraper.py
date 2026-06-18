@@ -7,7 +7,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -30,19 +30,20 @@ DRIVE_FOLDER_ID = os.environ["DRIVE_FOLDER_ID"]
 GOOGLE_OAUTH_TOKEN_JSON = os.environ["GOOGLE_OAUTH_TOKEN_JSON"]
 
 STATE_FILENAME = os.getenv("STATE_FILENAME", "kry_seen_items.json")
-
 HEADLESS = os.getenv("HEADLESS", "true").lower() != "false"
 
-# Optional selectors. Prefer leaving these empty unless needed.
-OPEN_LOGIN_SELECTOR = os.getenv("KRY_OPEN_LOGIN_SELECTOR", "")
-USERNAME_SELECTOR = os.getenv("KRY_USERNAME_SELECTOR", "")
-PASSWORD_SELECTOR = os.getenv("KRY_PASSWORD_SELECTOR", "")
-LOGIN_BUTTON_SELECTOR = os.getenv("KRY_LOGIN_BUTTON_SELECTOR", "")
+DECISIONS_PATH = os.getenv("KRY_DECISIONS_PATH", "/decisions2")
+
+# Confirmed selectors.
+# "כניסה לחברים" is ONLY the title inside the login form.
+# The real opener is "התחברות".
+OPEN_LOGIN_SELECTOR = os.getenv("KRY_OPEN_LOGIN_SELECTOR", 'button:has-text("התחברות")')
+USERNAME_SELECTOR = os.getenv("KRY_USERNAME_SELECTOR", 'input[name="email"]')
+PASSWORD_SELECTOR = os.getenv("KRY_PASSWORD_SELECTOR", 'input[type="password"]')
+LOGIN_BUTTON_SELECTOR = os.getenv("KRY_LOGIN_BUTTON_SELECTOR", 'button[aria-label="כניסה"]')
+
 ITEM_LINK_SELECTOR = os.getenv("KRY_ITEM_LINK_SELECTOR", 'a[href^="/protocols/"]')
 PRINT_LINK_SELECTOR = os.getenv("KRY_PRINT_LINK_SELECTOR", 'a:has-text("גרסת הדפסה")')
-
-DECISIONS_PATH = os.getenv("KRY_DECISIONS_PATH", "/decisions2")
-PRINT_TEXT = os.getenv("KRY_PRINT_TEXT", "גרסת הדפסה של הפרוטוקול")
 
 
 # =========================
@@ -61,6 +62,7 @@ def safe_filename(name: str, fallback: str = "protocol") -> str:
 
 def is_forbidden_page(page) -> bool:
     title = page.title() or ""
+
     body_text = ""
     try:
         body_text = page.locator("body").inner_text(timeout=3000)
@@ -73,6 +75,14 @@ def is_forbidden_page(page) -> bool:
         or "403" in body_text
         or "Forbidden" in body_text
     )
+
+
+def get_decisions_url() -> str:
+    return urljoin(BASE_URL + "/", DECISIONS_PATH.lstrip("/"))
+
+
+def get_protocol_absolute_url(href: str) -> str:
+    return urljoin(BASE_URL + "/", href)
 
 
 # =========================
@@ -201,6 +211,84 @@ def drive_upload_state(service, state: Dict[str, Any]) -> None:
 
 
 # =========================
+# Debug helpers
+# =========================
+
+def debug_inputs(page, label: str) -> None:
+    try:
+        inputs = page.locator("input")
+        log(f"Input count {label}: {inputs.count()}")
+
+        for i in range(inputs.count()):
+            try:
+                item = inputs.nth(i)
+                log(
+                    "INPUT "
+                    f"{i}: "
+                    f"type={item.get_attribute('type')} | "
+                    f"name={item.get_attribute('name')} | "
+                    f"id={item.get_attribute('id')} | "
+                    f"class={item.get_attribute('class')} | "
+                    f"placeholder={item.get_attribute('placeholder')} | "
+                    f"aria-label={item.get_attribute('aria-label')} | "
+                    f"autocomplete={item.get_attribute('autocomplete')}"
+                )
+            except Exception as e:
+                log(f"Failed reading input {i}: {e}")
+    except Exception as e:
+        log(f"Failed debug_inputs: {e}")
+
+
+def save_login_debug_artifacts(page) -> None:
+    try:
+        page.screenshot(path="login_debug_full_page.png", full_page=True)
+        log("Saved screenshot: login_debug_full_page.png")
+    except Exception as e:
+        log(f"Failed saving screenshot: {e}")
+
+    try:
+        with open("login_debug_page.html", "w", encoding="utf-8") as f:
+            f.write(page.content())
+        log("Saved HTML: login_debug_page.html")
+    except Exception as e:
+        log(f"Failed saving HTML: {e}")
+
+    try:
+        body_text = page.locator("body").inner_text(timeout=5000)
+        with open("login_debug_body_text.txt", "w", encoding="utf-8") as f:
+            f.write(body_text)
+        log("Saved body text: login_debug_body_text.txt")
+    except Exception as e:
+        log(f"Failed saving body text: {e}")
+
+    try:
+        clickables = page.locator("a, button, [role='button']")
+        with open("login_debug_clickables.txt", "w", encoding="utf-8") as f:
+            for i in range(clickables.count()):
+                try:
+                    item = clickables.nth(i)
+                    text = item.inner_text(timeout=500).strip()
+                    href = item.get_attribute("href")
+                    role = item.get_attribute("role")
+                    tag = item.evaluate("el => el.tagName")
+                    class_name = item.get_attribute("class")
+                    line = (
+                        f"{i}: tag={tag} | role={role} | href={href} | "
+                        f"class={class_name} | text={text}\n"
+                    )
+                    f.write(line)
+
+                    if any(token in text for token in ["כניסה", "חברים", "התחברות", "דיונים", "החלטות"]):
+                        log("CLICKABLE MATCH " + line.strip())
+                except Exception:
+                    continue
+
+        log("Saved clickables: login_debug_clickables.txt")
+    except Exception as e:
+        log(f"Failed saving clickables: {e}")
+
+
+# =========================
 # Login
 # =========================
 
@@ -217,7 +305,7 @@ def accept_cookie_banner(page) -> None:
         try:
             if candidate.count() > 0:
                 log("Accepting cookie banner")
-                candidate.first.click()
+                candidate.first.click(timeout=5000, force=True)
                 page.wait_for_timeout(1500)
                 return
         except Exception:
@@ -226,99 +314,69 @@ def accept_cookie_banner(page) -> None:
     log("Cookie banner not found or already accepted")
 
 
+def login_form_is_visible(page) -> bool:
+    try:
+        has_title = page.get_by_text("כניסה לחברים", exact=False).count() > 0
+        has_email = page.locator(USERNAME_SELECTOR).count() > 0 or page.locator('input[name="email"]').count() > 0
+        has_password = page.locator(PASSWORD_SELECTOR).count() > 0 or page.locator('input[type="password"]').count() > 0
+        return has_title and has_email and has_password
+    except Exception:
+        return False
+
+
 def open_real_login_form(page) -> None:
     log("Opening real member login form")
 
+    # Important:
+    # "כניסה לחברים" is only the title inside the login form.
+    # The opener is "התחברות" in the navigation.
+
     if OPEN_LOGIN_SELECTOR:
-        log(f"Opening login form using env selector: {OPEN_LOGIN_SELECTOR}")
-        page.locator(OPEN_LOGIN_SELECTOR).first.click(timeout=15000)
-        page.wait_for_timeout(3000)
-    else:
-        # Critical:
-        # "כניסה לחברים" is only the title inside the login form.
-        # The real opener is the "התחברות" link in the top navigation.
-        candidates = [
-            page.get_by_role("link", name="התחברות"),
-            page.get_by_role("button", name="התחברות"),
-            page.locator("a").filter(has_text="התחברות"),
-            page.locator("button").filter(has_text="התחברות"),
-            page.locator("[role='button']").filter(has_text="התחברות"),
-        ]
-
-        clicked = False
-
-        for candidate in candidates:
-            try:
-                if candidate.count() > 0:
-                    log("Clicking התחברות to open member login form")
-                    candidate.first.click(timeout=15000, force=True)
-                    clicked = True
-                    break
-            except Exception as e:
-                log(f"Failed opening login with התחברות candidate: {e}")
-
-        if not clicked:
-            try:
-                page.screenshot(path="login_debug_full_page.png", full_page=True)
-                log("Saved screenshot: login_debug_full_page.png")
-            except Exception:
-                pass
-
-            try:
-                with open("login_debug_page.html", "w", encoding="utf-8") as f:
-                    f.write(page.content())
-                log("Saved HTML: login_debug_page.html")
-            except Exception:
-                pass
-
-            raise RuntimeError("Could not find/click התחברות link to open login form.")
-
-    page.wait_for_timeout(3000)
-
-    # Validate that the real form opened.
-    if page.get_by_text("כניסה לחברים", exact=False).count() > 0:
-        log("Login form title 'כניסה לחברים' is visible")
-    else:
-        log("Warning: login form title 'כניסה לחברים' was not found after clicking התחברות")
-
-    if page.locator("input[type='password']").count() == 0 and page.get_by_placeholder("הסיסמה").count() == 0:
-        debug_inputs(page, "after clicking התחברות but before failing")
-
+        log(f"Trying env login opener selector: {OPEN_LOGIN_SELECTOR}")
         try:
-            page.screenshot(path="login_debug_full_page.png", full_page=True)
-            log("Saved screenshot: login_debug_full_page.png")
-        except Exception:
-            pass
+            locator = page.locator(OPEN_LOGIN_SELECTOR)
+            if locator.count() > 0:
+                locator.first.click(timeout=15000, force=True)
+                page.wait_for_timeout(3000)
 
-        try:
-            with open("login_debug_page.html", "w", encoding="utf-8") as f:
-                f.write(page.content())
-            log("Saved HTML: login_debug_page.html")
-        except Exception:
-            pass
+                if login_form_is_visible(page):
+                    log("Login form opened using env selector")
+                    return
 
-        raise RuntimeError("Clicked התחברות, but password field did not appear.")
-
-def debug_inputs(page, label: str) -> None:
-    inputs = page.locator("input")
-    log(f"Input count {label}: {inputs.count()}")
-
-    for i in range(inputs.count()):
-        try:
-            item = inputs.nth(i)
-            log(
-                "INPUT "
-                f"{i}: "
-                f"type={item.get_attribute('type')} | "
-                f"name={item.get_attribute('name')} | "
-                f"id={item.get_attribute('id')} | "
-                f"class={item.get_attribute('class')} | "
-                f"placeholder={item.get_attribute('placeholder')} | "
-                f"aria-label={item.get_attribute('aria-label')} | "
-                f"autocomplete={item.get_attribute('autocomplete')}"
-            )
+                log("Env selector clicked, but login form did not appear. Falling back.")
+            else:
+                log("Env login opener selector found 0 elements. Falling back.")
         except Exception as e:
-            log(f"Failed reading input {i}: {e}")
+            log(f"Env login opener selector failed: {e}. Falling back.")
+
+    candidates = [
+        page.get_by_role("button", name="התחברות"),
+        page.get_by_role("link", name="התחברות"),
+        page.locator("button").filter(has_text="התחברות"),
+        page.locator("a").filter(has_text="התחברות"),
+        page.locator("[role='button']").filter(has_text="התחברות"),
+        page.get_by_text("התחברות", exact=True),
+    ]
+
+    for candidate in candidates:
+        try:
+            if candidate.count() > 0:
+                log("Clicking התחברות to open member login form")
+                candidate.first.click(timeout=15000, force=True)
+                page.wait_for_timeout(3000)
+
+                if login_form_is_visible(page):
+                    log("Login form opened successfully")
+                    return
+
+                log("Clicked התחברות, but login form is not visible yet")
+        except Exception as e:
+            log(f"Failed opening login with candidate: {e}")
+
+    debug_inputs(page, "after failing to open login form")
+    save_login_debug_artifacts(page)
+
+    raise RuntimeError("Could not open login form with התחברות.")
 
 
 def login(page) -> None:
@@ -340,52 +398,38 @@ def login(page) -> None:
 
     # Fill username/email.
     try:
-        if USERNAME_SELECTOR:
-            log(f"Using username selector from env: {USERNAME_SELECTOR}")
-            page.locator(USERNAME_SELECTOR).first.fill(USERNAME)
-        else:
-            log('Using username placeholder: דוא"ל')
-            page.get_by_placeholder('דוא"ל').fill(USERNAME, timeout=15000)
+        log(f"Using username selector: {USERNAME_SELECTOR}")
+        page.locator(USERNAME_SELECTOR).first.fill(USERNAME, timeout=15000)
     except Exception as e:
         raise RuntimeError(f"Failed to fill username/email field: {e}")
 
     # Fill password.
     try:
-        if PASSWORD_SELECTOR:
-            log(f"Using password selector from env: {PASSWORD_SELECTOR}")
-            page.locator(PASSWORD_SELECTOR).first.fill(PASSWORD)
-        else:
-            log("Using password placeholder: הסיסמה")
-            page.get_by_placeholder("הסיסמה").fill(PASSWORD, timeout=15000)
+        log(f"Using password selector: {PASSWORD_SELECTOR}")
+        page.locator(PASSWORD_SELECTOR).first.fill(PASSWORD, timeout=15000)
     except Exception as e:
         raise RuntimeError(f"Failed to fill password field: {e}")
 
     # Submit login.
     try:
-        if LOGIN_BUTTON_SELECTOR:
-            log(f"Clicking login button using env selector: {LOGIN_BUTTON_SELECTOR}")
-            page.locator(LOGIN_BUTTON_SELECTOR).first.click()
-        else:
-            log("Clicking login button by role/name: כניסה")
-            page.get_by_role("button", name="כניסה").click(timeout=15000)
+        log(f"Clicking login button selector: {LOGIN_BUTTON_SELECTOR}")
+        page.locator(LOGIN_BUTTON_SELECTOR).first.click(timeout=15000, force=True)
     except Exception as e:
         raise RuntimeError(f"Failed to click login submit button: {e}")
 
     page.wait_for_load_state("networkidle", timeout=60000)
-    page.wait_for_timeout(6000)
+    page.wait_for_timeout(7000)
 
     log(f"URL after login submit: {page.url}")
     log(f"Title after login submit: {page.title()}")
 
-    # Check cookies names only. Do not print values.
     try:
         cookie_names = sorted({c.get("name") for c in page.context.cookies() if c.get("name")})
         log(f"Cookie names after login: {cookie_names}")
     except Exception as e:
         log(f"Could not read cookies after login: {e}")
 
-    # Verify protected page access.
-    decisions_url = urljoin(BASE_URL + "/", DECISIONS_PATH.lstrip("/"))
+    decisions_url = get_decisions_url()
     log(f"Checking protected page access: {decisions_url}")
 
     page.goto(decisions_url, wait_until="domcontentloaded", timeout=60000)
@@ -396,17 +440,18 @@ def login(page) -> None:
     log(f"Title after protected page check: {page.title()}")
 
     if is_forbidden_page(page):
+        save_login_debug_artifacts(page)
         raise RuntimeError("Login failed or user is not authorized: /decisions2 still returns 403.")
 
     log("Login finished and /decisions2 is accessible")
 
 
 # =========================
-# Discussions / decisions page
+# Decisions page
 # =========================
 
 def navigate_to_discussions(page) -> None:
-    decisions_url = urljoin(BASE_URL + "/", DECISIONS_PATH.lstrip("/"))
+    decisions_url = get_decisions_url()
 
     log(f"Navigating directly to discussions page: {decisions_url}")
     page.goto(decisions_url, wait_until="domcontentloaded", timeout=60000)
@@ -421,84 +466,62 @@ def navigate_to_discussions(page) -> None:
 
 
 def extract_items(page) -> List[Dict[str, str]]:
-    log("Scanning items")
+    log("Scanning protocol items")
+    log(f"Using item link selector: {ITEM_LINK_SELECTOR}")
 
     items: Dict[str, Dict[str, str]] = {}
 
-    if ITEM_LINK_SELECTOR:
-        log(f"Using item link selector from env: {ITEM_LINK_SELECTOR}")
-        links = page.locator(ITEM_LINK_SELECTOR)
-    else:
-        links = page.locator("a")
-
+    links = page.locator(ITEM_LINK_SELECTOR)
     count = links.count()
-    log(f"Total links on decisions page: {count}")
+
+    log(f"Protocol links count: {count}")
 
     for i in range(count):
         try:
             link = links.nth(i)
-            title = link.inner_text(timeout=1500).strip()
-            href = link.get_attribute("href")
 
+            title = ""
+            try:
+                title = link.inner_text(timeout=2000).strip()
+            except Exception:
+                pass
+
+            href = link.get_attribute("href")
             if not href:
                 continue
 
-            url = urljoin(BASE_URL + "/", href)
+            url = get_protocol_absolute_url(href)
+
+            parsed = urlparse(url)
+            if "/protocols/" not in parsed.path:
+                continue
 
             if not title:
-                title = url
-
-            combined = f"{title} {url}"
-
-            # Broad filtering. Tune KRY_ITEM_LINK_SELECTOR later after seeing real page structure.
-            if not ITEM_LINK_SELECTOR:
-                if any(skip in combined for skip in ["facebook", "instagram", "youtube", "mailto:", "tel:"]):
-                    continue
-
-                if len(title) < 3:
-                    continue
-
-                # Keep likely content links. If too strict, set KRY_ITEM_LINK_SELECTOR.
-                likely = any(
-                    token in combined
-                    for token in [
-                        "דיון",
-                        "דיונים",
-                        "החלט",
-                        "החלטות",
-                        "פרוטוקול",
-                        "protocol",
-                        "decision",
-                        "decisions",
-                        "post",
-                        "blog",
-                    ]
-                )
-
-                if not likely:
-                    continue
+                title = parsed.path.rstrip("/").split("/")[-1]
 
             item_id = url
+
             items[item_id] = {
                 "id": item_id,
                 "title": safe_filename(title, "protocol"),
                 "url": url,
             }
 
-        except Exception:
-            continue
+        except Exception as e:
+            log(f"Failed extracting protocol item {i}: {e}")
 
     result = list(items.values())
-    log(f"Found {len(result)} candidate items")
 
-    for idx, item in enumerate(result[:20]):
+    log(f"Found {len(result)} candidate protocol items")
+
+    for idx, item in enumerate(result[:30]):
         log(f"ITEM {idx}: title={item['title']} | url={item['url']}")
 
     return result
 
 
 # =========================
-# Download print version
+# PDF download
 # =========================
 
 def save_current_page_as_pdf(page, output_path: Path) -> Path:
@@ -516,91 +539,114 @@ def save_current_page_as_pdf(page, output_path: Path) -> Path:
     return output_path
 
 
+def download_pdf_by_url(context, pdf_url: str, output_dir: Path, fallback_name: str) -> Optional[Path]:
+    log(f"Downloading PDF URL: {pdf_url}")
+
+    response = context.request.get(pdf_url, timeout=60000)
+
+    if not response.ok:
+        log(f"Failed downloading PDF URL. Status={response.status}")
+        return None
+
+    parsed_name = Path(pdf_url.split("?")[0]).name
+    pdf_name = safe_filename(parsed_name or fallback_name)
+
+    if not pdf_name.lower().endswith(".pdf"):
+        pdf_name += ".pdf"
+
+    target_path = output_dir / pdf_name
+    target_path.write_bytes(response.body())
+
+    log(f"Downloaded PDF file: {target_path}")
+    return target_path
+
+
 def download_print_version(context, item: Dict[str, str], output_dir: Path) -> Optional[Path]:
     page = context.new_page()
 
     try:
-        log(f"Opening item: {item['title']} | {item['url']}")
+        log(f"Opening protocol item: {item['title']} | {item['url']}")
         page.goto(item["url"], wait_until="domcontentloaded", timeout=60000)
         page.wait_for_load_state("networkidle", timeout=60000)
         page.wait_for_timeout(3000)
 
         if is_forbidden_page(page):
-            log(f"Item page is forbidden: {item['url']}")
+            log(f"Protocol page is forbidden: {item['url']}")
             return None
 
         filename_base = safe_filename(item["title"], "protocol")
 
-        if PRINT_LINK_SELECTOR:
-            log(f"Using print selector: {PRINT_LINK_SELECTOR}")
-            print_locator = page.locator(PRINT_LINK_SELECTOR).first
-        else:
-            print_locator = page.get_by_role("link", name="גרסת הדפסה של הפרוטוקול").first
+        log(f"Using print selector: {PRINT_LINK_SELECTOR}")
+        print_locator = page.locator(PRINT_LINK_SELECTOR).first
 
         if print_locator.count() == 0:
             log(f"No print-version link found for: {item['title']}")
+
             fallback_pdf = output_dir / f"{filename_base}.pdf"
             save_current_page_as_pdf(page, fallback_pdf)
-            log(f"Saved item page itself as fallback PDF: {fallback_pdf}")
+
+            log(f"Saved protocol page itself as fallback PDF: {fallback_pdf}")
             return fallback_pdf
 
-        # Wix opens the PDF in a new tab/page.
+        # Confirmed flow:
+        # Clicking "גרסת הדפסה..." opens a new tab with /_files/ugd/...pdf.
         try:
             with context.expect_page(timeout=20000) as pdf_event:
-                print_locator.click(timeout=15000)
+                print_locator.click(timeout=15000, force=True)
 
             pdf_page = pdf_event.value
             pdf_page.wait_for_load_state("domcontentloaded", timeout=60000)
-            page.wait_for_timeout(2000)
+            pdf_page.wait_for_timeout(2000)
 
             pdf_url = pdf_page.url
             log(f"PDF page URL: {pdf_url}")
 
-            pdf_page.close()
+            try:
+                pdf_page.close()
+            except Exception:
+                pass
 
-            if ".pdf" not in pdf_url.lower():
-                log("Print page did not open a PDF URL. Saving opened page as PDF fallback.")
-                fallback_pdf = output_dir / f"{filename_base}.pdf"
-                save_current_page_as_pdf(page, fallback_pdf)
-                return fallback_pdf
+            if ".pdf" in pdf_url.lower():
+                downloaded = download_pdf_by_url(
+                    context=context,
+                    pdf_url=pdf_url,
+                    output_dir=output_dir,
+                    fallback_name=f"{filename_base}.pdf",
+                )
+                if downloaded:
+                    return downloaded
 
-            response = context.request.get(pdf_url, timeout=60000)
-
-            if not response.ok:
-                log(f"Failed downloading PDF URL. Status={response.status}")
-                return None
-
-            pdf_name = safe_filename(Path(pdf_url.split("?")[0]).name or f"{filename_base}.pdf")
-            if not pdf_name.lower().endswith(".pdf"):
-                pdf_name += ".pdf"
-
-            target_path = output_dir / pdf_name
-            target_path.write_bytes(response.body())
-
-            log(f"Downloaded PDF file: {target_path}")
-            return target_path
+            log("New tab did not contain a direct PDF URL or download failed.")
 
         except PlaywrightTimeoutError:
             log("No PDF popup opened. Trying direct download event.")
+        except Exception as e:
+            log(f"PDF popup flow failed: {e}")
 
-        # Fallback: maybe browser treats it as download.
+        # Fallback: browser download event.
         try:
             with page.expect_download(timeout=20000) as download_info:
-                print_locator.click(timeout=15000)
+                print_locator.click(timeout=15000, force=True)
 
             download = download_info.value
             suggested_name = safe_filename(download.suggested_filename or f"{filename_base}.pdf")
+
+            if not suggested_name.lower().endswith(".pdf"):
+                suggested_name += ".pdf"
+
             target_path = output_dir / suggested_name
             download.save_as(str(target_path))
 
-            log(f"Downloaded file: {target_path}")
+            log(f"Downloaded file via download event: {target_path}")
             return target_path
 
         except Exception as e:
-            log(f"Failed direct download fallback: {e}")
+            log(f"Direct download fallback failed: {e}")
 
+        # Final fallback: save protocol page itself as PDF.
         fallback_pdf = output_dir / f"{filename_base}.pdf"
         save_current_page_as_pdf(page, fallback_pdf)
+
         log(f"Saved current page as final fallback PDF: {fallback_pdf}")
         return fallback_pdf
 
@@ -630,7 +676,12 @@ def main() -> None:
                 accept_downloads=True,
                 locale="he-IL",
                 timezone_id="Asia/Jerusalem",
-                viewport={"width": 1440, "height": 1200},
+                viewport={"width": 1920, "height": 3000},
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/125.0.0.0 Safari/537.36"
+                ),
             )
 
             page = context.new_page()
@@ -654,6 +705,7 @@ def main() -> None:
                             "status": "download_failed",
                             "checked_at": datetime.now(timezone.utc).isoformat(),
                         }
+                        log(f"Download failed for item: {item['title']}")
                         continue
 
                     drive_file_id = drive_upload_file(

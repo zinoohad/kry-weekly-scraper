@@ -284,17 +284,17 @@ def login(page):
         if not filled:
             raise RuntimeError("Password field not found after clicking discussions. Set KRY_PASSWORD_SELECTOR.")
 
-    # Submit login.
+        # Submit login.
     if LOGIN_BUTTON_SELECTOR:
         log(f"Clicking login button from env: {LOGIN_BUTTON_SELECTOR}")
         page.locator(LOGIN_BUTTON_SELECTOR).first.click()
     else:
         login_button_candidates = [
-            page.get_by_role("button", name="התחברות"),
             page.get_by_role("button", name="כניסה"),
+            page.get_by_role("button", name="התחברות"),
             page.get_by_role("button", name="התחבר"),
-            page.get_by_text("התחברות", exact=True),
             page.get_by_text("כניסה", exact=True),
+            page.get_by_text("התחברות", exact=True),
             page.locator("button[type='submit']"),
             page.locator("input[type='submit']"),
         ]
@@ -314,30 +314,44 @@ def login(page):
             log("No login button found. Pressing Enter.")
             page.keyboard.press("Enter")
 
-    page.wait_for_load_state("networkidle", timeout=60000)
-    page.wait_for_timeout(3000)
+    # IMPORTANT:
+    # Wix often never becomes networkidle because of background requests.
+    # Waiting for networkidle here is a trap.
+    page.wait_for_timeout(5000)
 
     log(f"Current URL after login submit: {page.url}")
     log(f"Page title after login submit: {page.title()}")
 
-    # This validation is intentionally weak for now.
-    # Some Wix forms keep hidden password inputs in DOM, so checking count() alone is unreliable.
     visible_passwords = page.locator("input[type='password']:visible").count()
+    log(f"Visible password fields after submit: {visible_passwords}")
+
+    try:
+        body_text = page.locator("body").inner_text(timeout=5000)
+        log(f"Body text sample after login submit: {body_text[:500]}")
+    except Exception as e:
+        log(f"Could not read body text after submit: {e}")
+
     if visible_passwords > 0:
         log("Warning: visible password field still exists after submit. Login may have failed.")
 
     log("Login finished")
 
 
-def navigate_to_discussions(page):
+def navigate_to_discussions(page) -> None:
     log(f"Navigating to {SECTION_TEXT}")
+
+    if "decisions" in page.url.lower():
+        log("Already on decisions page")
+        return
 
     locator = page.get_by_text(SECTION_TEXT, exact=False)
     if locator.count() == 0:
         raise RuntimeError(f"Could not find section: {SECTION_TEXT}")
 
     locator.first.click()
-    page.wait_for_load_state("networkidle", timeout=60000)
+
+    # Avoid networkidle on Wix.
+    page.wait_for_timeout(3000)
 
 
 def extract_items(page):

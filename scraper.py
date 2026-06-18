@@ -38,8 +38,8 @@ OPEN_LOGIN_SELECTOR = os.getenv("KRY_OPEN_LOGIN_SELECTOR", "")
 USERNAME_SELECTOR = os.getenv("KRY_USERNAME_SELECTOR", "")
 PASSWORD_SELECTOR = os.getenv("KRY_PASSWORD_SELECTOR", "")
 LOGIN_BUTTON_SELECTOR = os.getenv("KRY_LOGIN_BUTTON_SELECTOR", "")
-ITEM_LINK_SELECTOR = os.getenv("KRY_ITEM_LINK_SELECTOR", "")
-PRINT_LINK_SELECTOR = os.getenv("KRY_PRINT_LINK_SELECTOR", "")
+ITEM_LINK_SELECTOR = os.getenv("KRY_ITEM_LINK_SELECTOR", 'a[href^="/protocols/"]')
+PRINT_LINK_SELECTOR = os.getenv("KRY_PRINT_LINK_SELECTOR", 'a:has-text("גרסת הדפסה")')
 
 DECISIONS_PATH = os.getenv("KRY_DECISIONS_PATH", "/decisions2")
 PRINT_TEXT = os.getenv("KRY_PRINT_TEXT", "גרסת הדפסה של הפרוטוקול")
@@ -231,45 +231,80 @@ def open_real_login_form(page) -> None:
 
     if OPEN_LOGIN_SELECTOR:
         log(f"Opening login form using env selector: {OPEN_LOGIN_SELECTOR}")
-        page.locator(OPEN_LOGIN_SELECTOR).first.click()
+        page.locator(OPEN_LOGIN_SELECTOR).first.click(timeout=15000)
         page.wait_for_timeout(3000)
         return
 
-    # Critical: do NOT click "התחברות".
-    # On this Wix site it may open the contact form, not the real member login.
-    candidates = [
-        page.get_by_role("button", name="כניסה לחברים"),
-        page.get_by_text("כניסה לחברים", exact=True),
-        page.locator("button").filter(has_text="כניסה לחברים"),
-        page.locator("a").filter(has_text="כניסה לחברים"),
-    ]
+    # Critical:
+    # Do NOT click "התחברות". It may open the contact form.
+    # The real login form is opened by "כניסה לחברים".
+    login_button = page.get_by_role("button", name="כניסה לחברים")
 
-    for candidate in candidates:
+    # Try immediate click first.
+    try:
+        if login_button.count() > 0:
+            log("Clicking כניסה לחברים")
+            login_button.first.scroll_into_view_if_needed(timeout=5000)
+            login_button.first.click(timeout=10000)
+            page.wait_for_timeout(3000)
+            return
+    except Exception as e:
+        log(f"Immediate כניסה לחברים click failed: {e}")
+
+    log("כניסה לחברים not immediately available. Progressive scrolling.")
+
+    # Wix lazy-loads sections. Scroll progressively and retry.
+    try:
+        total_height = page.evaluate("() => document.body.scrollHeight")
+    except Exception:
+        total_height = 12000
+
+    y = 0
+    while y <= int(total_height) + 1000:
+        log(f"Scrolling to y={y}")
+        page.evaluate("(scrollY) => window.scrollTo(0, scrollY)", y)
+        page.wait_for_timeout(1000)
+
         try:
-            if candidate.count() > 0:
-                log("Clicking כניסה לחברים")
-                candidate.first.click()
+            login_button = page.get_by_role("button", name="כניסה לחברים")
+            if login_button.count() > 0:
+                log("Found and clicking כניסה לחברים after scroll")
+                login_button.first.scroll_into_view_if_needed(timeout=5000)
+                login_button.first.click(timeout=10000)
                 page.wait_for_timeout(3000)
                 return
         except Exception as e:
-            log(f"Login open candidate failed: {e}")
+            log(f"כניסה לחברים attempt failed at y={y}: {e}")
 
-    # Fallback: scroll and try again.
-    log("Could not find כניסה לחברים immediately. Scrolling and trying again.")
-    page.mouse.wheel(0, 1800)
-    page.wait_for_timeout(2000)
-
-    for candidate in candidates:
+        # Also try exact text in case role is not button in headless.
         try:
-            if candidate.count() > 0:
-                log("Clicking כניסה לחברים after scroll")
-                candidate.first.click()
+            text_button = page.get_by_text("כניסה לחברים", exact=True)
+            if text_button.count() > 0:
+                log("Found and clicking text כניסה לחברים after scroll")
+                text_button.first.scroll_into_view_if_needed(timeout=5000)
+                text_button.first.click(timeout=10000, force=True)
                 page.wait_for_timeout(3000)
                 return
         except Exception as e:
-            log(f"Login open candidate after scroll failed: {e}")
+            log(f"text כניסה לחברים attempt failed at y={y}: {e}")
 
-    raise RuntimeError("Could not open real login form. Selector/button 'כניסה לחברים' not found.")
+        y += 700
+
+    # Final diagnostics.
+    try:
+        page.screenshot(path="login_debug_full_page.png", full_page=True)
+        log("Saved screenshot: login_debug_full_page.png")
+    except Exception as e:
+        log(f"Failed saving screenshot: {e}")
+
+    try:
+        with open("login_debug_page.html", "w", encoding="utf-8") as f:
+            f.write(page.content())
+        log("Saved HTML: login_debug_page.html")
+    except Exception as e:
+        log(f"Failed saving HTML: {e}")
+
+    raise RuntimeError("Could not find/click real login button: כניסה לחברים")
 
 
 def debug_inputs(page, label: str) -> None:
@@ -505,39 +540,61 @@ def download_print_version(context, item: Dict[str, str], output_dir: Path) -> O
         filename_base = safe_filename(item["title"], "protocol")
 
         if PRINT_LINK_SELECTOR:
-            log(f"Using print selector from env: {PRINT_LINK_SELECTOR}")
+            log(f"Using print selector: {PRINT_LINK_SELECTOR}")
             print_locator = page.locator(PRINT_LINK_SELECTOR).first
         else:
-            candidates = [
-                page.get_by_text(PRINT_TEXT, exact=False),
-                page.get_by_text("גרסת הדפסה", exact=False),
-                page.get_by_text("הדפסה", exact=False),
-                page.get_by_role("link", name=re.compile("הדפסה|גרסת הדפסה")),
-                page.get_by_role("button", name=re.compile("הדפסה|גרסת הדפסה")),
-            ]
+            print_locator = page.get_by_role("link", name="גרסת הדפסה של הפרוטוקול").first
 
-            print_locator = None
-            for candidate in candidates:
-                try:
-                    if candidate.count() > 0:
-                        print_locator = candidate.first
-                        break
-                except Exception:
-                    pass
-
-        if not print_locator:
+        if print_locator.count() == 0:
             log(f"No print-version link found for: {item['title']}")
-
-            # Fallback: save item page itself as PDF so we do not lose the new item.
             fallback_pdf = output_dir / f"{filename_base}.pdf"
             save_current_page_as_pdf(page, fallback_pdf)
             log(f"Saved item page itself as fallback PDF: {fallback_pdf}")
             return fallback_pdf
 
-        # Case 1: direct browser download.
+        # Wix opens the PDF in a new tab/page.
         try:
-            with page.expect_download(timeout=15000) as download_info:
-                print_locator.click()
+            with context.expect_page(timeout=20000) as pdf_event:
+                print_locator.click(timeout=15000)
+
+            pdf_page = pdf_event.value
+            pdf_page.wait_for_load_state("domcontentloaded", timeout=60000)
+            page.wait_for_timeout(2000)
+
+            pdf_url = pdf_page.url
+            log(f"PDF page URL: {pdf_url}")
+
+            pdf_page.close()
+
+            if ".pdf" not in pdf_url.lower():
+                log("Print page did not open a PDF URL. Saving opened page as PDF fallback.")
+                fallback_pdf = output_dir / f"{filename_base}.pdf"
+                save_current_page_as_pdf(page, fallback_pdf)
+                return fallback_pdf
+
+            response = context.request.get(pdf_url, timeout=60000)
+
+            if not response.ok:
+                log(f"Failed downloading PDF URL. Status={response.status}")
+                return None
+
+            pdf_name = safe_filename(Path(pdf_url.split("?")[0]).name or f"{filename_base}.pdf")
+            if not pdf_name.lower().endswith(".pdf"):
+                pdf_name += ".pdf"
+
+            target_path = output_dir / pdf_name
+            target_path.write_bytes(response.body())
+
+            log(f"Downloaded PDF file: {target_path}")
+            return target_path
+
+        except PlaywrightTimeoutError:
+            log("No PDF popup opened. Trying direct download event.")
+
+        # Fallback: maybe browser treats it as download.
+        try:
+            with page.expect_download(timeout=20000) as download_info:
+                print_locator.click(timeout=15000)
 
             download = download_info.value
             suggested_name = safe_filename(download.suggested_filename or f"{filename_base}.pdf")
@@ -547,37 +604,13 @@ def download_print_version(context, item: Dict[str, str], output_dir: Path) -> O
             log(f"Downloaded file: {target_path}")
             return target_path
 
-        except PlaywrightTimeoutError:
-            log("No direct download event. Checking if print view opened as page/popup.")
+        except Exception as e:
+            log(f"Failed direct download fallback: {e}")
 
-        # Case 2: click opened popup.
-        try:
-            with context.expect_page(timeout=5000) as page_info:
-                print_locator.click()
-
-            popup = page_info.value
-            popup.wait_for_load_state("networkidle", timeout=60000)
-            popup_pdf = output_dir / f"{filename_base}.pdf"
-            save_current_page_as_pdf(popup, popup_pdf)
-            popup.close()
-
-            log(f"Saved popup print page as PDF: {popup_pdf}")
-            return popup_pdf
-
-        except Exception:
-            pass
-
-        # Case 3: current page changed to print view.
-        try:
-            page.wait_for_load_state("networkidle", timeout=30000)
-        except Exception:
-            pass
-
-        pdf_path = output_dir / f"{filename_base}.pdf"
-        save_current_page_as_pdf(page, pdf_path)
-
-        log(f"Saved current print page as PDF: {pdf_path}")
-        return pdf_path
+        fallback_pdf = output_dir / f"{filename_base}.pdf"
+        save_current_page_as_pdf(page, fallback_pdf)
+        log(f"Saved current page as final fallback PDF: {fallback_pdf}")
+        return fallback_pdf
 
     finally:
         page.close()

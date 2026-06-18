@@ -233,79 +233,71 @@ def open_real_login_form(page) -> None:
         log(f"Opening login form using env selector: {OPEN_LOGIN_SELECTOR}")
         page.locator(OPEN_LOGIN_SELECTOR).first.click(timeout=15000)
         page.wait_for_timeout(3000)
-        return
+    else:
+        # Critical:
+        # "כניסה לחברים" is only the title inside the login form.
+        # The real opener is the "התחברות" link in the top navigation.
+        candidates = [
+            page.get_by_role("link", name="התחברות"),
+            page.get_by_role("button", name="התחברות"),
+            page.locator("a").filter(has_text="התחברות"),
+            page.locator("button").filter(has_text="התחברות"),
+            page.locator("[role='button']").filter(has_text="התחברות"),
+        ]
 
-    # Critical:
-    # Do NOT click "התחברות". It may open the contact form.
-    # The real login form is opened by "כניסה לחברים".
-    login_button = page.get_by_role("button", name="כניסה לחברים")
+        clicked = False
 
-    # Try immediate click first.
-    try:
-        if login_button.count() > 0:
-            log("Clicking כניסה לחברים")
-            login_button.first.scroll_into_view_if_needed(timeout=5000)
-            login_button.first.click(timeout=10000)
-            page.wait_for_timeout(3000)
-            return
-    except Exception as e:
-        log(f"Immediate כניסה לחברים click failed: {e}")
+        for candidate in candidates:
+            try:
+                if candidate.count() > 0:
+                    log("Clicking התחברות to open member login form")
+                    candidate.first.click(timeout=15000, force=True)
+                    clicked = True
+                    break
+            except Exception as e:
+                log(f"Failed opening login with התחברות candidate: {e}")
 
-    log("כניסה לחברים not immediately available. Progressive scrolling.")
+        if not clicked:
+            try:
+                page.screenshot(path="login_debug_full_page.png", full_page=True)
+                log("Saved screenshot: login_debug_full_page.png")
+            except Exception:
+                pass
 
-    # Wix lazy-loads sections. Scroll progressively and retry.
-    try:
-        total_height = page.evaluate("() => document.body.scrollHeight")
-    except Exception:
-        total_height = 12000
+            try:
+                with open("login_debug_page.html", "w", encoding="utf-8") as f:
+                    f.write(page.content())
+                log("Saved HTML: login_debug_page.html")
+            except Exception:
+                pass
 
-    y = 0
-    while y <= int(total_height) + 1000:
-        log(f"Scrolling to y={y}")
-        page.evaluate("(scrollY) => window.scrollTo(0, scrollY)", y)
-        page.wait_for_timeout(1000)
+            raise RuntimeError("Could not find/click התחברות link to open login form.")
+
+    page.wait_for_timeout(3000)
+
+    # Validate that the real form opened.
+    if page.get_by_text("כניסה לחברים", exact=False).count() > 0:
+        log("Login form title 'כניסה לחברים' is visible")
+    else:
+        log("Warning: login form title 'כניסה לחברים' was not found after clicking התחברות")
+
+    if page.locator("input[type='password']").count() == 0 and page.get_by_placeholder("הסיסמה").count() == 0:
+        debug_inputs(page, "after clicking התחברות but before failing")
 
         try:
-            login_button = page.get_by_role("button", name="כניסה לחברים")
-            if login_button.count() > 0:
-                log("Found and clicking כניסה לחברים after scroll")
-                login_button.first.scroll_into_view_if_needed(timeout=5000)
-                login_button.first.click(timeout=10000)
-                page.wait_for_timeout(3000)
-                return
-        except Exception as e:
-            log(f"כניסה לחברים attempt failed at y={y}: {e}")
+            page.screenshot(path="login_debug_full_page.png", full_page=True)
+            log("Saved screenshot: login_debug_full_page.png")
+        except Exception:
+            pass
 
-        # Also try exact text in case role is not button in headless.
         try:
-            text_button = page.get_by_text("כניסה לחברים", exact=True)
-            if text_button.count() > 0:
-                log("Found and clicking text כניסה לחברים after scroll")
-                text_button.first.scroll_into_view_if_needed(timeout=5000)
-                text_button.first.click(timeout=10000, force=True)
-                page.wait_for_timeout(3000)
-                return
-        except Exception as e:
-            log(f"text כניסה לחברים attempt failed at y={y}: {e}")
+            with open("login_debug_page.html", "w", encoding="utf-8") as f:
+                f.write(page.content())
+            log("Saved HTML: login_debug_page.html")
+        except Exception:
+            pass
 
-        y += 700
-
-    # Final diagnostics.
-    try:
-        page.screenshot(path="login_debug_full_page.png", full_page=True)
-        log("Saved screenshot: login_debug_full_page.png")
-    except Exception as e:
-        log(f"Failed saving screenshot: {e}")
-
-    try:
-        with open("login_debug_page.html", "w", encoding="utf-8") as f:
-            f.write(page.content())
-        log("Saved HTML: login_debug_page.html")
-    except Exception as e:
-        log(f"Failed saving HTML: {e}")
-
-    raise RuntimeError("Could not find/click real login button: כניסה לחברים")
-
+        raise RuntimeError("Clicked התחברות, but password field did not appear.")
 
 def debug_inputs(page, label: str) -> None:
     inputs = page.locator("input")

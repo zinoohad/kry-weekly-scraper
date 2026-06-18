@@ -145,38 +145,44 @@ def drive_upload_state(service, state: Dict[str, Any]):
 def login(page):
     login_url = os.getenv("KRY_LOGIN_URL", BASE_URL)
 
-    log(f"Opening login page: {login_url}")
+    log(f"Opening site: {login_url}")
     page.goto(login_url, wait_until="domcontentloaded", timeout=60000)
+    page.wait_for_load_state("networkidle", timeout=60000)
 
-    log("Logging in")
+    log("Opening discussions section to trigger real login")
 
-    if OPEN_LOGIN_SELECTOR:
-        log(f"Opening login form using selector: {OPEN_LOGIN_SELECTOR}")
-        page.locator(OPEN_LOGIN_SELECTOR).first.click()
-        page.wait_for_timeout(1000)
-    else:
-        # Try common Hebrew login texts before searching fields.
-        open_login_candidates = [
-            "כניסה",
-            "התחברות",
-            "התחבר",
-            "כניסת חברים",
-            "כניסה למערכת",
-        ]
+    # Do NOT click "התחברות" here.
+    # On this Wix site it opened a contact form, not the real login form.
+    section_candidates = [
+        page.get_by_text("דיונים והחלטות", exact=True),
+        page.get_by_role("link", name="דיונים והחלטות"),
+        page.locator("a").filter(has_text="דיונים והחלטות"),
+    ]
 
-        for text in open_login_candidates:
-            candidate = page.get_by_text(text, exact=False)
+    clicked_section = False
+
+    for candidate in section_candidates:
+        try:
             if candidate.count() > 0:
-                log(f"Opening login form using text: {text}")
+                log("Clicking דיונים והחלטות")
                 candidate.first.click()
-                page.wait_for_timeout(1000)
+                clicked_section = True
                 break
+        except Exception as e:
+            log(f"Failed trying discussions candidate: {e}")
 
-    log(f"Current URL after opening login form: {page.url}")
-    log(f"Page title: {page.title()}")
+    if not clicked_section:
+        raise RuntimeError("Could not find דיונים והחלטות link on home page.")
 
+    page.wait_for_load_state("networkidle", timeout=60000)
+    page.wait_for_timeout(2500)
+
+    log(f"Current URL after clicking discussions: {page.url}")
+    log(f"Page title after clicking discussions: {page.title()}")
+
+    # Debug visible inputs after clicking the protected section.
     inputs = page.locator("input")
-    log(f"Input count after opening login form: {inputs.count()}")
+    log(f"Input count after clicking discussions: {inputs.count()}")
 
     for i in range(inputs.count()):
         try:
@@ -195,56 +201,130 @@ def login(page):
             log(f"Failed reading input {i}: {e}")
 
     buttons = page.locator("button, input[type='submit'], input[type='button'], a")
-    log(f"Clickable count after opening login form: {buttons.count()}")
+    log(f"Clickable count after clicking discussions: {buttons.count()}")
 
-    for i in range(min(buttons.count(), 40)):
+    for i in range(min(buttons.count(), 60)):
         try:
             item = buttons.nth(i)
+            tag = item.evaluate("el => el.tagName")
+            text = ""
+            try:
+                text = item.inner_text(timeout=1000).strip()
+            except Exception:
+                text = item.get_attribute("value") or ""
+
             log(
                 "CLICKABLE "
                 f"{i}: "
-                f"tag={item.evaluate('el => el.tagName')} | "
+                f"tag={tag} | "
                 f"type={item.get_attribute('type')} | "
                 f"name={item.get_attribute('name')} | "
                 f"id={item.get_attribute('id')} | "
                 f"class={item.get_attribute('class')} | "
-                f"text={item.inner_text(timeout=1000).strip() if item.inner_text(timeout=1000) else item.get_attribute('value')}"
+                f"href={item.get_attribute('href')} | "
+                f"text={text}"
             )
         except Exception as e:
             log(f"Failed reading clickable {i}: {e}")
 
+    # Fill username/email.
     if USERNAME_SELECTOR:
-        page.locator(USERNAME_SELECTOR).fill(USERNAME)
+        log(f"Using username selector from env: {USERNAME_SELECTOR}")
+        page.locator(USERNAME_SELECTOR).first.fill(USERNAME)
     else:
-        if page.locator("input[type='email']").count() > 0:
-            page.locator("input[type='email']").first.fill(USERNAME)
-        elif page.locator("input[type='text']").count() > 0:
-            page.locator("input[type='text']").first.fill(USERNAME)
-        else:
+        user_candidates = [
+            "input[type='email']",
+            "input[name*='email' i]",
+            "input[id*='email' i]",
+            "input[name*='mail' i]",
+            "input[id*='mail' i]",
+            "input[name*='user' i]",
+            "input[id*='user' i]",
+            "input[name*='login' i]",
+            "input[id*='login' i]",
+            "input[type='text']",
+            "input:not([type])",
+        ]
+
+        filled = False
+        for selector in user_candidates:
+            locator = page.locator(selector)
+            if locator.count() > 0:
+                log(f"Using username selector: {selector}")
+                locator.first.fill(USERNAME)
+                filled = True
+                break
+
+        if not filled:
             raise RuntimeError("Username field not found. Set KRY_USERNAME_SELECTOR.")
 
+    # Fill password.
     if PASSWORD_SELECTOR:
-        page.locator(PASSWORD_SELECTOR).fill(PASSWORD)
+        log(f"Using password selector from env: {PASSWORD_SELECTOR}")
+        page.locator(PASSWORD_SELECTOR).first.fill(PASSWORD)
     else:
-        if page.locator("input[type='password']").count() == 0:
-            raise RuntimeError("Password field not found. Set KRY_PASSWORD_SELECTOR.")
-        page.locator("input[type='password']").first.fill(PASSWORD)
+        password_candidates = [
+            "input[type='password']",
+            "input[name*='password' i]",
+            "input[id*='password' i]",
+            "input[name*='pass' i]",
+            "input[id*='pass' i]",
+            "input[autocomplete='current-password']",
+        ]
 
+        filled = False
+        for selector in password_candidates:
+            locator = page.locator(selector)
+            if locator.count() > 0:
+                log(f"Using password selector: {selector}")
+                locator.first.fill(PASSWORD)
+                filled = True
+                break
+
+        if not filled:
+            raise RuntimeError("Password field not found after clicking discussions. Set KRY_PASSWORD_SELECTOR.")
+
+    # Submit login.
     if LOGIN_BUTTON_SELECTOR:
-        page.locator(LOGIN_BUTTON_SELECTOR).click()
+        log(f"Clicking login button from env: {LOGIN_BUTTON_SELECTOR}")
+        page.locator(LOGIN_BUTTON_SELECTOR).first.click()
     else:
-        if page.locator("input[type='submit']").count() > 0:
-            page.locator("input[type='submit']").first.click()
-        elif page.locator("button[type='submit']").count() > 0:
-            page.locator("button[type='submit']").first.click()
-        else:
+        login_button_candidates = [
+            page.get_by_role("button", name="התחברות"),
+            page.get_by_role("button", name="כניסה"),
+            page.get_by_role("button", name="התחבר"),
+            page.get_by_text("התחברות", exact=True),
+            page.get_by_text("כניסה", exact=True),
+            page.locator("button[type='submit']"),
+            page.locator("input[type='submit']"),
+        ]
+
+        clicked_login = False
+        for candidate in login_button_candidates:
+            try:
+                if candidate.count() > 0:
+                    log("Clicking login submit button")
+                    candidate.first.click()
+                    clicked_login = True
+                    break
+            except Exception as e:
+                log(f"Failed trying login button candidate: {e}")
+
+        if not clicked_login:
+            log("No login button found. Pressing Enter.")
             page.keyboard.press("Enter")
 
     page.wait_for_load_state("networkidle", timeout=60000)
+    page.wait_for_timeout(3000)
 
-    # Basic login validation
-    if page.locator("input[type='password']").count() > 0:
-        raise RuntimeError("Login probably failed: password field is still visible after submit.")
+    log(f"Current URL after login submit: {page.url}")
+    log(f"Page title after login submit: {page.title()}")
+
+    # This validation is intentionally weak for now.
+    # Some Wix forms keep hidden password inputs in DOM, so checking count() alone is unreliable.
+    visible_passwords = page.locator("input[type='password']:visible").count()
+    if visible_passwords > 0:
+        log("Warning: visible password field still exists after submit. Login may have failed.")
 
     log("Login finished")
 

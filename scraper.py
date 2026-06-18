@@ -42,7 +42,7 @@ USERNAME_SELECTOR = os.getenv("KRY_USERNAME_SELECTOR", "#input_comp-md2ww5ye")
 PASSWORD_SELECTOR = os.getenv("KRY_PASSWORD_SELECTOR", "#input_comp-md2ww5yo2")
 LOGIN_BUTTON_SELECTOR = os.getenv("KRY_LOGIN_BUTTON_SELECTOR", 'button[aria-label="כניסה"]')
 
-ITEM_LINK_SELECTOR = os.getenv("KRY_ITEM_LINK_SELECTOR", 'a[href^="/protocols/"]')
+ITEM_LINK_SELECTOR = os.getenv("KRY_ITEM_LINK_SELECTOR", 'a[href*="/protocols/"]')
 PRINT_LINK_SELECTOR = os.getenv("KRY_PRINT_LINK_SELECTOR", 'a:has-text("גרסת הדפסה")')
 
 
@@ -474,9 +474,40 @@ def navigate_to_discussions(page) -> None:
     if is_forbidden_page(page):
         raise RuntimeError("Access denied to /decisions2. Login did not persist or user lacks permission.")
 
+def scroll_to_load_all_protocols(page) -> None:
+    log("Scrolling decisions page to load all protocol cards")
+
+    previous_count = -1
+    stable_rounds = 0
+
+    for round_index in range(20):
+        try:
+            current_count = page.locator(ITEM_LINK_SELECTOR).count()
+            log(f"Protocol links count before scroll round {round_index}: {current_count}")
+
+            if current_count == previous_count:
+                stable_rounds += 1
+            else:
+                stable_rounds = 0
+
+            if stable_rounds >= 3:
+                log("Protocol links count is stable. Stopping scroll.")
+                break
+
+            previous_count = current_count
+
+            page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(2000)
+
+        except Exception as e:
+            log(f"Scroll round failed: {e}")
+            break
 
 def extract_items(page) -> List[Dict[str, str]]:
     log("Scanning protocol items")
+
+    scroll_to_load_all_protocols(page)
+
     log(f"Using item link selector: {ITEM_LINK_SELECTOR}")
 
     items: Dict[str, Dict[str, str]] = {}
@@ -486,6 +517,20 @@ def extract_items(page) -> List[Dict[str, str]]:
 
     log(f"Protocol links count: {count}")
 
+    if count == 0:
+        log("No protocol links found. Dumping all links for debug.")
+        all_links = page.locator("a")
+        log(f"Total links on page: {all_links.count()}")
+
+        for i in range(min(all_links.count(), 100)):
+            try:
+                link = all_links.nth(i)
+                text = link.inner_text(timeout=500).strip()
+                href = link.get_attribute("href")
+                log(f"LINK DEBUG {i}: text={text} | href={href}")
+            except Exception:
+                continue
+            
     for i in range(count):
         try:
             link = links.nth(i)

@@ -52,7 +52,7 @@ jobs:
           KRY_USERNAME_SELECTOR: '#input_comp-md2ww5ye'
           KRY_PASSWORD_SELECTOR: '#input_comp-md2ww5yo2'
           KRY_LOGIN_BUTTON_SELECTOR: 'button[aria-label="כניסה"]'
-          KRY_ITEM_LINK_SELECTOR: 'a[href^="/protocols/"]'
+          KRY_ITEM_LINK_SELECTOR: 'a[href*="/protocols/"]'
           KRY_PRINT_LINK_SELECTOR: 'a:has-text("גרסת הדפסה")'
 
           HEADLESS: "true"

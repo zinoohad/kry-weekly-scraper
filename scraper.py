@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from urllib.parse import urljoin
 
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError

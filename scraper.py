@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional
 from urllib.parse import urljoin
 
 from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
@@ -20,7 +21,6 @@ USERNAME = os.environ["KRY_USERNAME"]
 PASSWORD = os.environ["KRY_PASSWORD"]
 
 DRIVE_FOLDER_ID = os.environ["DRIVE_FOLDER_ID"]
-GOOGLE_SERVICE_ACCOUNT_JSON = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
 
 SECTION_TEXT = os.getenv("KRY_SECTION_TEXT", "דיונים והחלטות")
 PRINT_TEXT = os.getenv("KRY_PRINT_TEXT", "גרסת הדפסה של הפרוטוקול")
@@ -46,17 +46,20 @@ def safe_filename(name: str) -> str:
 
 
 def get_drive_service():
-    raw = GOOGLE_SERVICE_ACCOUNT_JSON.strip()
+    raw = os.environ["GOOGLE_OAUTH_TOKEN_JSON"].strip()
 
     try:
-        data = json.loads(raw)
+        token_data = json.loads(raw)
     except json.JSONDecodeError:
-        data = json.loads(base64.b64decode(raw).decode("utf-8"))
+        token_data = json.loads(base64.b64decode(raw).decode("utf-8"))
 
-    creds = service_account.Credentials.from_service_account_info(
-        data,
+    creds = Credentials.from_authorized_user_info(
+        token_data,
         scopes=["https://www.googleapis.com/auth/drive"]
     )
+
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
 
     return build("drive", "v3", credentials=creds)
 

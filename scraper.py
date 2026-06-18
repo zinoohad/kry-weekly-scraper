@@ -31,6 +31,7 @@ HEADLESS = os.getenv("HEADLESS", "true").lower() != "false"
 USERNAME_SELECTOR = os.getenv("KRY_USERNAME_SELECTOR", "")
 PASSWORD_SELECTOR = os.getenv("KRY_PASSWORD_SELECTOR", "")
 LOGIN_BUTTON_SELECTOR = os.getenv("KRY_LOGIN_BUTTON_SELECTOR", "")
+OPEN_LOGIN_SELECTOR = os.getenv("KRY_OPEN_LOGIN_SELECTOR", "")
 ITEM_LINK_SELECTOR = os.getenv("KRY_ITEM_LINK_SELECTOR", "")
 PRINT_LINK_SELECTOR = os.getenv("KRY_PRINT_LINK_SELECTOR", "")
 
@@ -148,6 +149,69 @@ def login(page):
     page.goto(login_url, wait_until="domcontentloaded", timeout=60000)
 
     log("Logging in")
+
+    if OPEN_LOGIN_SELECTOR:
+        log(f"Opening login form using selector: {OPEN_LOGIN_SELECTOR}")
+        page.locator(OPEN_LOGIN_SELECTOR).first.click()
+        page.wait_for_timeout(1000)
+    else:
+        # Try common Hebrew login texts before searching fields.
+        open_login_candidates = [
+            "כניסה",
+            "התחברות",
+            "התחבר",
+            "כניסת חברים",
+            "כניסה למערכת",
+        ]
+
+        for text in open_login_candidates:
+            candidate = page.get_by_text(text, exact=False)
+            if candidate.count() > 0:
+                log(f"Opening login form using text: {text}")
+                candidate.first.click()
+                page.wait_for_timeout(1000)
+                break
+
+    log(f"Current URL after opening login form: {page.url}")
+    log(f"Page title: {page.title()}")
+
+    inputs = page.locator("input")
+    log(f"Input count after opening login form: {inputs.count()}")
+
+    for i in range(inputs.count()):
+        try:
+            item = inputs.nth(i)
+            log(
+                "INPUT "
+                f"{i}: "
+                f"type={item.get_attribute('type')} | "
+                f"name={item.get_attribute('name')} | "
+                f"id={item.get_attribute('id')} | "
+                f"class={item.get_attribute('class')} | "
+                f"placeholder={item.get_attribute('placeholder')} | "
+                f"aria-label={item.get_attribute('aria-label')}"
+            )
+        except Exception as e:
+            log(f"Failed reading input {i}: {e}")
+
+    buttons = page.locator("button, input[type='submit'], input[type='button'], a")
+    log(f"Clickable count after opening login form: {buttons.count()}")
+
+    for i in range(min(buttons.count(), 40)):
+        try:
+            item = buttons.nth(i)
+            log(
+                "CLICKABLE "
+                f"{i}: "
+                f"tag={item.evaluate('el => el.tagName')} | "
+                f"type={item.get_attribute('type')} | "
+                f"name={item.get_attribute('name')} | "
+                f"id={item.get_attribute('id')} | "
+                f"class={item.get_attribute('class')} | "
+                f"text={item.inner_text(timeout=1000).strip() if item.inner_text(timeout=1000) else item.get_attribute('value')}"
+            )
+        except Exception as e:
+            log(f"Failed reading clickable {i}: {e}")
 
     if USERNAME_SELECTOR:
         page.locator(USERNAME_SELECTOR).fill(USERNAME)

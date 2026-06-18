@@ -41,10 +41,14 @@ jobs:
 
       - name: Run scraper
         env:
-          KRY_BASE_URL: "https://k-ry.org.il"
-          KRY_LOGIN_URL: "https://k-ry.org.il/"
+          KRY_BASE_URL: "https://www.k-ry.org.il"
+          KRY_LOGIN_URL: "https://www.k-ry.org.il/"
           KRY_USERNAME: ${{ secrets.KRY_USERNAME }}
           KRY_PASSWORD: ${{ secrets.KRY_PASSWORD }}
+          KRY_OPEN_LOGIN_SELECTOR: ${{ secrets.KRY_OPEN_LOGIN_SELECTOR }}
+          KRY_USERNAME_SELECTOR: ${{ secrets.KRY_USERNAME_SELECTOR }}
+          KRY_PASSWORD_SELECTOR: ${{ secrets.KRY_PASSWORD_SELECTOR }}
+          KRY_LOGIN_BUTTON_SELECTOR: ${{ secrets.KRY_LOGIN_BUTTON_SELECTOR }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
           GOOGLE_OAUTH_TOKEN_JSON: ${{ secrets.GOOGLE_OAUTH_TOKEN_JSON }}
           HEADLESS: "true"

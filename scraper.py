@@ -621,9 +621,15 @@ def download_print_version(context, item: Dict[str, str], output_dir: Path) -> O
 
     try:
         log(f"Opening protocol item: {item['title']} | {item['url']}")
+
         page.goto(item["url"], wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_load_state("networkidle", timeout=60000)
-        page.wait_for_timeout(3000)
+
+        try:
+            page.wait_for_selector(PRINT_LINK_SELECTOR, timeout=30000)
+            log(f"Print selector appeared: {PRINT_LINK_SELECTOR}")
+        except Exception as e:
+            log(f"Print selector did not appear within timeout: {e}")
+            page.wait_for_timeout(5000)
 
         if is_forbidden_page(page):
             log(f"Protocol page is forbidden: {item['url']}")
@@ -643,14 +649,34 @@ def download_print_version(context, item: Dict[str, str], output_dir: Path) -> O
             log(f"Saved protocol page itself as fallback PDF: {fallback_pdf}")
             return fallback_pdf
 
-        # Confirmed flow:
-        # Clicking "גרסת הדפסה..." opens a new tab with /_files/ugd/...pdf.
+        # First try direct download event.
+        # In the current logs this is the path that actually works.
         try:
-            with context.expect_page(timeout=20000) as pdf_event:
+            with page.expect_download(timeout=20000) as download_info:
+                print_locator.click(timeout=15000, force=True)
+
+            download = download_info.value
+            suggested_name = safe_filename(download.suggested_filename or f"{filename_base}.pdf")
+
+            if not suggested_name.lower().endswith(".pdf"):
+                suggested_name += ".pdf"
+
+            target_path = output_dir / suggested_name
+            download.save_as(str(target_path))
+
+            log(f"Downloaded file via download event: {target_path}")
+            return target_path
+
+        except Exception as e:
+            log(f"Download event did not work: {e}")
+
+        # Fallback: maybe it opens a PDF tab.
+        try:
+            with context.expect_page(timeout=10000) as pdf_event:
                 print_locator.click(timeout=15000, force=True)
 
             pdf_page = pdf_event.value
-            pdf_page.wait_for_load_state("domcontentloaded", timeout=60000)
+            pdf_page.wait_for_load_state("domcontentloaded", timeout=30000)
             pdf_page.wait_for_timeout(2000)
 
             pdf_url = pdf_page.url
@@ -673,30 +699,8 @@ def download_print_version(context, item: Dict[str, str], output_dir: Path) -> O
 
             log("New tab did not contain a direct PDF URL or download failed.")
 
-        except PlaywrightTimeoutError:
-            log("No PDF popup opened. Trying direct download event.")
         except Exception as e:
-            log(f"PDF popup flow failed: {e}")
-
-        # Fallback: browser download event.
-        try:
-            with page.expect_download(timeout=20000) as download_info:
-                print_locator.click(timeout=15000, force=True)
-
-            download = download_info.value
-            suggested_name = safe_filename(download.suggested_filename or f"{filename_base}.pdf")
-
-            if not suggested_name.lower().endswith(".pdf"):
-                suggested_name += ".pdf"
-
-            target_path = output_dir / suggested_name
-            download.save_as(str(target_path))
-
-            log(f"Downloaded file via download event: {target_path}")
-            return target_path
-
-        except Exception as e:
-            log(f"Direct download fallback failed: {e}")
+            log(f"PDF popup fallback failed: {e}")
 
         # Final fallback: save protocol page itself as PDF.
         fallback_pdf = output_dir / f"{filename_base}.pdf"
@@ -707,7 +711,6 @@ def download_print_version(context, item: Dict[str, str], output_dir: Path) -> O
 
     finally:
         page.close()
-
 
 # =========================
 # Main
@@ -754,13 +757,8 @@ def main() -> None:
                     downloaded = download_print_version(context, item, output_dir)
 
                     if not downloaded:
-                        seen[item["id"]] = {
-                            "title": item["title"],
-                            "url": item["url"],
-                            "status": "download_failed",
-                            "checked_at": datetime.now(timezone.utc).isoformat(),
-                        }
                         log(f"Download failed for item: {item['title']}")
+                        log("Item will NOT be marked as seen, so it can retry next run.")
                         continue
 
                     drive_file_id = drive_upload_file(
@@ -780,23 +778,26 @@ def main() -> None:
                     }
 
                     log(f"Uploaded to Drive: {downloaded.name}")
-
+                    try:
+                        drive_upload_state(drive, state)
+                        log("State uploaded after successful item")
+                    except Exception as e:
+                        log(f"Failed uploading state after item, will retry at end: {e}")
+                        
                 except Exception as e:
                     log(f"Failed item: {item.get('title')} | {e}")
-
-                    seen[item["id"]] = {
-                        "title": item.get("title"),
-                        "url": item.get("url"),
-                        "status": "error",
-                        "error": str(e),
-                        "checked_at": datetime.now(timezone.utc).isoformat(),
-                    }
+                    log("Item failed and will NOT be marked as seen, so it can retry next run.")
 
             context.close()
             browser.close()
 
     state["last_run_at"] = datetime.now(timezone.utc).isoformat()
-    drive_upload_state(drive, state)
+
+    try:
+        drive_upload_state(drive, state)
+        log("Final state uploaded")
+    except Exception as e:
+        log(f"Final state upload failed: {e}")
 
     log("Done")
 
